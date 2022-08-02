@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>ローレンツ方程式</title>
+<script src="three.js"></script>
+<script>
+let scene, camera, renderer;                //シーン、カメラ、レンダラー
+let axisX, axisY, axisZ;                    //軸
+let points = new Array();                   //点
+let pointNum;                               //点の数
+let geometry1, material1;                   //通常の点の形状、マテリアル
+let geometry2, material2;                   //先頭の点の形状、マテリアル
+const [sx, sy, sz] = [0.09, 0.1, 0.1];       //初期値
+const dt = 0.01;                            //単位時間
+const [width, height] = [600, 600];         //画面サイズ
+let request = null;                         //リクエスト
+
+const init = () => {
+    //シーンの作成
+    scene = new THREE.Scene();
+    //カメラの作成（画角:50、ニアクリップ:1、ファークリップ:1000）
+    camera = new THREE.PerspectiveCamera(50, width/height, 1, 1000);
+    camera.up.set(0, 0, 1);                                             //z軸を画面の上方向にする
+    camera.position.set(0, 120, 30);                                    //カメラの初期位置
+    camera.lookAt(new THREE.Vector3(0, 0, 30));
+    //レンダラーの作成
+    renderer = new THREE.WebGLRenderer({antialias: true});
+    renderer.setSize(width, height);
+    document.getElementById("renderArea").appendChild(renderer.domElement); //画像表示エリア
+    //ライトの作成（平行光源、環境光）
+    const light = new THREE.DirectionalLight("#FFFFFF");                    //光源の色は白
+    light.position.set(0, 100, 200);
+    scene.add(light);
+    const ambientLight = new THREE.AmbientLight("#333333");
+    scene.add(ambientLight);
+    //軸の作成
+    const geometry = new THREE.CylinderGeometry(0.5, 0.5, 100, 4);          //座標軸を円柱で作成
+    const materialX = new THREE.MeshPhongMaterial({color: "#FF6666"});      //X軸の色は濃いピンク
+    axisX = new THREE.Mesh(geometry, materialX);
+    axisX.rotation.z = Math.PI/2;
+    scene.add(axisX);
+    const materialY = new THREE.MeshPhongMaterial({color: "#66FF66"});      //Y軸の色は濃い黄緑色
+    axisY = new THREE.Mesh(geometry, materialY);
+    scene.add(axisY);
+    const materialZ = new THREE.MeshPhongMaterial({color: "#6666FF"});      //z軸の色は青紫色
+    axisZ = new THREE.Mesh(geometry, materialZ);
+    axisZ.rotation.x = Math.PI/2;
+    axisZ.position.z = 30;
+    scene.add(axisZ);
+    //点の作成
+    geometry1 = new THREE.SphereGeometry(0.5, 4, 4);                        //グラフの点を球で作成
+    material1 = new THREE.MeshPhongMaterial({
+        color: "#66FFFF",                                                   //球の色は水色　光沢の色グレー　光沢の大きさ30
+        specular: "#999999",
+        shininess: 30
+    });
+    geometry2 = new THREE.SphereGeometry(1, 16, 16);                        //アニメーション時の先頭の点
+    material2 = new THREE.MeshPhongMaterial({
+        color: "#FFFFFF",                                                   //先頭の点の色は白
+        specular: "#999999",
+        shininess: 30
+    });
+    setPoint();
+}
+
+const setCamera = () => {
+    //カメラ位置の変更
+    const angle = document.getElementById("angle").value;                   //カメラ方向スライダーの値を取得
+    document.getElementById("textAngle").innerText = `[${angle}°]`;
+    camera.position.x = 120 * Math.cos(angle * Math.PI/180);                //カメラ位置を変更
+    camera.position.y = 120 * Math.sin(angle * Math.PI/180);
+    camera.lookAt(new THREE.Vector3(0, 0, 30));
+    if (request == null) renderer.render(scene, camera);
+}
+
+const setAxis = () => {
+    //軸の表示／非表示
+    if (document.getElementById("axis").checked) {                          //軸を表示するチェックボックスの値を取得
+        axisX.visible = true;
+        axisY.visible = true;
+        axisZ.visible = true;
+    } else {
+        axisX.visible = false;
+        axisY.visible = false;
+        axisZ.visible = false;
+    }
+    if (request == null) renderer.render(scene, camera);
+}
+
+const setPoint = () => {
+    //点の消去
+    for (const point of points) {           //すべての点を消去
+        scene.remove(point);
+    }
+    points = [];
+    //点の作成
+    pointNum = document.getElementById("num").value;        //点の数入力フォームの値を取得
+    let [x, y, z] = [sx, sy, sz];
+    for (let i = 0; i<pointNum; i++) {
+        points[i] = new THREE.Mesh(geometry1, material1);   //グラフの点（球）を作成
+        [x, y, z] = lorenz(x, y, z);                        //ローレンツ方程式の関数で点の座標を求める
+        points[i].position.set(x, y, z);
+        scene.add(points[i]);
+    }
+    stopDraw();
+    renderer.render(scene, camera);
+}
+
+const startDraw = () => {
+    //点の消去
+    for (const point of points) {
+        scene.remove(points) 
+    }
+    points = [];
+    //先頭の点の作成
+    points[0] = new THREE.Mesh(geometry2, material2);
+    points[0].position.set(sx, sy, sz);
+    scene.add(points[0]);
+    //アニメーション開始
+    stopDraw();
+    update();
+}
+
+const stopDraw = () => {
+    //アニメーション停止
+    if (request != null) window.cancelAnimationFrame(request);
+    request = null;
+}
+
+const update = () => {              //アニメーションの描画
+    //点の移動
+    for (const point of points) {
+        //座標の取得
+        let x = point.position.x;
+        let y = point.position.y;
+        let z = point.position.z;
+        //ローレンツ方程式の計算結果に移動
+        [x, y, z] = lorenz(x, y, z);
+        point.position.set(x, y, z);
+    }
+    if(points.length < pointNum) {                  //点の数入力フォームで指定した値に達していないとき
+        //点の追加
+        const point = new THREE.Mesh(geometry1, material1);
+        point.position.set(sx, sy, sz);
+        scene.add(point);
+        points.push(point);
+    }
+    //描画
+    renderer.render(scene, camera);
+    requeat = window.requestAnimationFrame(update);         //update関数自身を呼び出すことでアニメーションを行う
+}
+
+const lorenz = (x, y, z) => {
+    //ローレンツ方程式
+    const [p, r, b] = [10, 28, 8/3];                        //ローレンツが与えたp, r, bの値
+    const dx = (-p * x + p * y) * dt;
+    const dy = (-x * z + r * x - y) * dt;
+    const dz = (x * y - b * z) * dt;
+    return [x + dx, y + dy, z + dz];
+}
+</script>
+<style>
+input[type="number"] {width: 60px;}
+</style>
+</head>
+<body onload="init()">
+<p>ローレンツ方程式</p>
+点の数：<input type="number" id="num" value="1000" min="1">
+<input type="button" value="変更" onclick="setPoint()">
+<input type="button" value="アニメーション開始" onclick="startDraw()">
+<input type="button" value="停止" onclick="stopDraw()">
+カメラ方向：<input type="range" id="angle" value="90" min="0" max="180"
+ oninput="setCamera()">
+<span id="textAngle">[90° ]</span>
+<input type="checkbox" id="axis" checked onchange="setAxis()">軸を表示する
+<hr>
+<div id="renderArea"></div>
+</body>
+</html>
+
+
